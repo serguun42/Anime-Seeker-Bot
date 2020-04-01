@@ -36,98 +36,112 @@ TOB.launch();
 TOB.on("inline_query", ({ inlineQuery, answerInlineQuery }) => {
 	let seeking = inlineQuery.query;
 	if (!seeking) return false;
-
-	PERMISSION_LIST.forEach((username) => {
-		if (inlineQuery.from && inlineQuery.from["username"] === username) {
-			if (!(/[а-я]/gi.test(seeking))) { // MAL SEARCH
-				request(`${MAL_API_DOMAIN}search/anime?q=${encodeURIComponent(seeking.toString())}`, {
-					headers: {
-						"User-agent": USER_AGENT
-					},
-					method: "GET"
-				}, (iErr, iResponse, iBody) => {
-					if (iErr) return false;
-					if (iResponse.statusCode !== 200) return false;
+	if (!inlineQuery.from) return false;
 
 
-					let results;
-
-					try {
-						results = JSON.parse(iBody)["results"];
-					} catch (e) {
-						return false;
-					};
-
-					if (!results) return false;
-					if (!results.length) return false;
 
 
-					answerInlineQuery(results.map(anime => ({
-						type: "article",
-						id: `MAL_${anime["mal_id"]}`,
-						title: anime["title"],
-						description: anime["synopsis"],
-						url: anime["url"],
-						thumb_url: anime["image_url"],
-						input_message_content: {
+	let permissionIndex = PERMISSION_LIST.indexOf(inlineQuery.from["username"]);
+
+	if (permissionIndex > -1) {
+		if (!(/[а-я]/gi.test(seeking))) { // MAL SEARCH
+			request(`${MAL_API_DOMAIN}search/anime?q=${encodeURIComponent(seeking.toString())}`, {
+				headers: {
+					"User-agent": USER_AGENT
+				},
+				method: "GET"
+			}, (iErr, iResponse, iBody) => {
+				if (iErr) return false;
+				if (iResponse.statusCode !== 200) return false;
+
+
+				let results;
+
+				try {
+					results = JSON.parse(iBody)["results"];
+				} catch (e) {
+					return false;
+				};
+
+				if (!results) return false;
+				if (!results.length) return false;
+
+
+				answerInlineQuery(results.map(anime => ({
+					type: "article",
+					id: `MAL_${anime["mal_id"]}`,
+					title: anime["title"],
+					description: anime["synopsis"],
+					url: anime["url"],
+					thumb_url: anime["image_url"],
+					input_message_content: {
 message_text: `<a href="${TGE(encodeURI(anime.url))}">${TGE(anime.title)}</a>
 ${MALMakeUpYears(anime)}${MALMakeUpType(anime)}
 <b>Рейтинг</b>: ${TGE(anime.score ? anime.score : "Неизвестно")}`,
-							parse_mode: "HTML",
-						},
-						reply_markup: Markup.inlineKeyboard([
-							Markup.urlButton("MyAnimeList", anime["url"]),
-							Markup.urlButton("Shikimori", SHIKI_DOMAIN + "/animes/" + anime["mal_id"])
-						])
-					}))).catch((e) => console.error("Error on answering from MAL", e));
-				});
-			} else { // SHIKI SEARCH
-				request(`${SHIKI_API_DOMAIN}animes?search=${encodeURIComponent(seeking.toString())}`, {
-					headers: {
-						"User-agent": USER_AGENT
+						parse_mode: "HTML",
 					},
-					method: "GET"
-				}, (iErr, iResponse, iBody) => {
-					if (iErr) return false;
-					if (iResponse.statusCode !== 200) return false;
+					reply_markup: Markup.inlineKeyboard([
+						Markup.urlButton("MyAnimeList", anime["url"]),
+						Markup.urlButton("Shikimori", SHIKI_DOMAIN + "/animes/" + anime["mal_id"])
+					])
+				}))).catch((e) => console.error("Error on answering from MAL", e));
+			});
+		} else { // SHIKI SEARCH
+			request(`${SHIKI_API_DOMAIN}animes?search=${encodeURIComponent(seeking.toString())}`, {
+				headers: {
+					"User-agent": USER_AGENT
+				},
+				method: "GET"
+			}, (iErr, iResponse, iBody) => {
+				if (iErr) return false;
+				if (iResponse.statusCode !== 200) return false;
 
 
-					let results;
+				let results;
 
-					try {
-						results = JSON.parse(iBody);
-					} catch (e) {
-						return false;
-					};
+				try {
+					results = JSON.parse(iBody);
+				} catch (e) {
+					return false;
+				};
 
-					if (!results) return false;
-					if (!results.length) return false;
-
-
-					
+				if (!results) return false;
+				if (!results.length) return false;
 
 
-					answerInlineQuery(results.map(anime => ({
-						type: "article",
-						id: `SHIKI_${anime["id"]}`,
-						title: ShikiMakeUpName(anime),
-						url: SHIKI_DOMAIN + anime.url,
-						thumb_url: SHIKI_DOMAIN + anime["image"]["original"],
-						input_message_content: {
+				
+
+
+				answerInlineQuery(results.map(anime => ({
+					type: "article",
+					id: `SHIKI_${anime["id"]}`,
+					title: ShikiMakeUpName(anime),
+					url: SHIKI_DOMAIN + anime.url,
+					thumb_url: SHIKI_DOMAIN + anime["image"]["original"],
+					input_message_content: {
 message_text: `<a href="${TGE(SHIKI_DOMAIN + anime.url)}">${TGE(ShikiMakeUpName(anime))}</a>
 ${ShikiMakeUpYears(anime)}${ShikiMakeUpType(anime)}
 <b>Рейтинг</b>: ${TGE(anime.score ? anime.score : "Неизвестно")}`,
-							parse_mode: "HTML",
-						},
-						reply_markup: Markup.inlineKeyboard([
-							Markup.urlButton("MyAnimeList", `https://myanimelist.net/anime/${anime["id"]}`),
-							Markup.urlButton("Shikimori", SHIKI_DOMAIN + anime.url)
-						])
-					}))).catch((e) => console.error("Error on answering from Shiki", e));
-				});
-			};
+						parse_mode: "HTML",
+					},
+					reply_markup: Markup.inlineKeyboard([
+						Markup.urlButton("MyAnimeList", `https://myanimelist.net/anime/${anime["id"]}`),
+						Markup.urlButton("Shikimori", SHIKI_DOMAIN + anime.url)
+					])
+				}))).catch((e) => console.error("Error on answering from Shiki", e));
+			});
 		};
-	});
+	} else {
+		answerInlineQuery([{
+			type: "article",
+			id: `REJECT_${new Date().toISOString()}`,
+			title: "У вас нет доступа",
+			input_message_content: {
+				message_text: seeking,
+				parse_mode: "HTML",
+			}
+		}]).catch((e) => console.error("Error on answering from Shiki", e));
+	}
 });
 
 
