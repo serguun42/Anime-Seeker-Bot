@@ -1,27 +1,81 @@
 const
 	Telegraf = require("telegraf"),
 	Sessions = require("telegraf/session"),
-	Markup = require("telegraf/markup"),
 	Telegram = require("telegraf/telegram"),
-	CONFIG = JSON.parse(require("fs").readFileSync("./config.json"))["ASB"],
+	Markup = require("telegraf/markup"),
+	DEV = require("os").platform() === "win32" || process.argv[2] === "DEV",
+	CONFIG = JSON.parse(require("fs").readFileSync("./animeseekerbot.config.json")),
 	TELEGRAM_BOT_TOKEN = CONFIG.TELEGRAM_BOT_TOKEN,
 	ADMIN_TELEGRAM_DATA = CONFIG.ADMIN_TELEGRAM_DATA,
 	PERMISSION_LIST = CONFIG.PERMISSION_LIST;
 
 
+let telegramConnectionData = {}
+
+if (DEV) {
+	const ProxyAgent = require("proxy-agent");
+
+	telegramConnectionData["agent"] = new ProxyAgent(CONFIG.PROXY_URL);
+};
+
 
 const
-	telegram = new Telegram(TELEGRAM_BOT_TOKEN),
-	TOB = new Telegraf(TELEGRAM_BOT_TOKEN);
+	telegram = new Telegram(TELEGRAM_BOT_TOKEN, telegramConnectionData),
+	TOB = new Telegraf(TELEGRAM_BOT_TOKEN, { telegram: telegramConnectionData });
 
+/**
+ * @typedef {Object} TelegramFromObject
+ * @property {Number} id
+ * @property {String} first_name
+ * @property {String} username
+ * @property {Boolean} is_bot
+ * @property {String} language_code
+ * 
+ * @typedef {Object} TelegramChatObject
+ * @property {Number} id
+ * @property {String} title
+ * @property {String} type
+ * 
+ * @typedef {Object} TelegramPhotoObj
+ * @property {String} file_id
+ * @property {String} file_unique_id
+ * @property {Number} file_size
+ * @property {Number} width
+ * @property {Number} height
+ * 
+ * @typedef {Object} TelegramContext
+ * @property {Object} telegram 
+ * @property {String} updateType 
+ * @property {Object} [updateSubTypes] 
+ * @property {{message_id: Number, text?: String, from: TelegramFromObject, chat: TelegramChatObject, date: Number, photo?: TelegramPhotoObj[]}} [message] 
+ * @property {Object} [editedMessage] 
+ * @property {Object} [inlineQuery] 
+ * @property {Object} [chosenInlineResult] 
+ * @property {Object} [callbackQuery] 
+ * @property {Object} [shippingQuery] 
+ * @property {Object} [preCheckoutQuery] 
+ * @property {Object} [channelPost] 
+ * @property {Object} [editedChannelPost] 
+ * @property {Object} [poll] 
+ * @property {Object} [pollAnswer] 
+ * @property {TelegramChatObject} [chat] 
+ * @property {TelegramFromObject} [from] 
+ * @property {Object} [match] 
+ * @property {Boolean} webhookReply
+ */
 TOB.use(Sessions());
-TOB.on("text", (ctx) => {
-	if (ctx.from && ctx.from["id"] === ADMIN_TELEGRAM_DATA.id && ctx.from["username"] === ADMIN_TELEGRAM_DATA.username) {
-		ctx.reply("```\n" + JSON.stringify({
-			status: "OK",
+TOB.on("text", /** @param {TelegramContext} ctx */ (ctx) => {
+	const {from, chat} = ctx;
+	
+	
+	if (
+		(chat && chat["type"] === "private") &&
+		(from && from["id"] === ADMIN_TELEGRAM_DATA.id && from["username"] === ADMIN_TELEGRAM_DATA.username)
+	) {
+		return ctx.reply("```\n" + JSON.stringify({
+			status: "Everything is OK",
 			message: "You're ADMIN, writing in private",
-			from: ctx.from,
-			chat: ctx.chat
+			from, chat
 		}, false, "    ") + "\n```", {
 			parse_mode: "MarkdownV2"
 		});
@@ -33,119 +87,12 @@ TOB.launch();
 
 
 
-TOB.on("inline_query", ({ inlineQuery, answerInlineQuery }) => {
-	let seeking = inlineQuery.query;
-	if (!seeking) return false;
-	if (!inlineQuery.from) return false;
-
-
-
-
-	let permissionIndex = PERMISSION_LIST.indexOf(inlineQuery.from["username"]);
-
-	if (permissionIndex > -1) {
-		if (!(/[а-я]/gi.test(seeking))) { // MAL SEARCH
-			request(`${MAL_API_DOMAIN}search/anime?q=${encodeURIComponent(seeking.toString())}`, {
-				headers: {
-					"User-agent": USER_AGENT
-				},
-				method: "GET"
-			}, (iErr, iResponse, iBody) => {
-				if (iErr) return false;
-				if (iResponse.statusCode !== 200) return false;
-
-
-				let results;
-
-				try {
-					results = JSON.parse(iBody)["results"];
-				} catch (e) {
-					return false;
-				};
-
-				if (!results) return false;
-				if (!results.length) return false;
-
-
-				answerInlineQuery(results.map(anime => ({
-					type: "article",
-					id: `MAL_${anime["mal_id"]}`,
-					title: anime["title"],
-					description: anime["synopsis"],
-					url: anime["url"],
-					thumb_url: anime["image_url"],
-					input_message_content: {
-message_text: `<a href="${TGE(encodeURI(anime.url))}">${TGE(anime.title)}</a>
-${MALMakeUpYears(anime)}${MALMakeUpType(anime)}
-<b>Рейтинг</b>: ${TGE(anime.score ? anime.score : "Неизвестно")}`,
-						parse_mode: "HTML",
-					},
-					reply_markup: Markup.inlineKeyboard([
-						Markup.urlButton("MyAnimeList", anime["url"]),
-						Markup.urlButton("Shikimori", SHIKI_DOMAIN + "/animes/" + anime["mal_id"])
-					])
-				}))).catch((e) => console.error("Error on answering from MAL", e));
-			});
-		} else { // SHIKI SEARCH
-			request(`${SHIKI_API_DOMAIN}animes?search=${encodeURIComponent(seeking.toString())}`, {
-				headers: {
-					"User-agent": USER_AGENT
-				},
-				method: "GET"
-			}, (iErr, iResponse, iBody) => {
-				if (iErr) return false;
-				if (iResponse.statusCode !== 200) return false;
-
-
-				let results;
-
-				try {
-					results = JSON.parse(iBody);
-				} catch (e) {
-					return false;
-				};
-
-				if (!results) return false;
-				if (!results.length) return false;
-
-
-				
-
-
-				answerInlineQuery(results.map(anime => ({
-					type: "article",
-					id: `SHIKI_${anime["id"]}`,
-					title: ShikiMakeUpName(anime),
-					url: SHIKI_DOMAIN + anime.url,
-					thumb_url: SHIKI_DOMAIN + anime["image"]["original"],
-					input_message_content: {
-message_text: `<a href="${TGE(SHIKI_DOMAIN + anime.url)}">${TGE(ShikiMakeUpName(anime))}</a>
-${ShikiMakeUpYears(anime)}${ShikiMakeUpType(anime)}
-<b>Рейтинг</b>: ${TGE(anime.score ? anime.score : "Неизвестно")}`,
-						parse_mode: "HTML",
-					},
-					reply_markup: Markup.inlineKeyboard([
-						Markup.urlButton("MyAnimeList", `https://myanimelist.net/anime/${anime["id"]}`),
-						Markup.urlButton("Shikimori", SHIKI_DOMAIN + anime.url)
-					])
-				}))).catch((e) => console.error("Error on answering from Shiki", e));
-			});
-		};
-	} else {
-		answerInlineQuery([{
-			type: "article",
-			id: `REJECT_${new Date().toISOString()}`,
-			title: "У вас нет доступа",
-			input_message_content: {
-				message_text: seeking,
-				parse_mode: "HTML",
-			}
-		}]).catch((e) => console.error("Error on answering from Shiki", e));
-	}
-});
-
-
-
+const L = function(arg) {
+	if (DEV) {
+		console.log(...arguments);
+		if (typeof arg == "object") require("fs").writeFileSync("./out/errors.json", JSON.stringify(arg, false, "\t"));
+	};
+};
 
 const TGE = iStr => {
 	if (!iStr) return "";
@@ -195,12 +142,111 @@ TelegramSendToAdmin(`Anime Seeker Bot have been spawned at ${new Date().toISOStr
 
 
 
+
+
+
+TOB.on("inline_query", ({ inlineQuery, answerInlineQuery }) => {
+	let seeking = inlineQuery.query;
+	if (!seeking) return false;
+	if (!inlineQuery.from) return false;
+
+
+	let permissionIndex = PERMISSION_LIST.indexOf(inlineQuery.from["username"]);
+
+	if (permissionIndex > -1) {
+		if (!(/[а-я]/gi.test(seeking))) { // MAL SEARCH
+			request(`${MAL_API_DOMAIN}search/anime?q=${encodeURIComponent(seeking.toString())}`, {
+				headers: {
+					"User-agent": USER_AGENT
+				},
+				method: "GET"
+			}, (iErr, iResponse, iBody) => {
+				if (iErr) return false;
+				if (iResponse.statusCode !== 200) return false;
+
+
+				let results;
+
+				try {
+					results = JSON.parse(iBody)["results"];
+				} catch (e) {
+					return false;
+				};
+
+				if (!results) return false;
+				if (!results.length) return false;
+
+
+				answerInlineQuery(results.map(anime => ({
+					type: "article",
+					id: `MAL_${anime["mal_id"]}_${+new Date()}`,
+					title: anime["title"],
+					description: anime["synopsis"],
+					url: anime["url"],
+					thumb_url: anime["image_url"],
+					input_message_content: {
+message_text: `<a href="${TGE(encodeURI(anime.url))}">${TGE(anime.title)}</a>
+${MALMakeUpYears(anime)}${MALMakeUpType(anime)}
+<b>Рейтинг</b>: ${TGE(anime.score ? anime.score : "Неизвестно")}`,
+						parse_mode: "HTML",
+					},
+					reply_markup: Markup.inlineKeyboard([
+						Markup.urlButton("MyAnimeList", anime["url"]),
+						Markup.urlButton("Shikimori", SHIKI_DOMAIN + "/animes/" + anime["mal_id"])
+					])
+				}))).catch((e) => console.error("Error on answering from MAL", e));
+			});
+		} else { // SHIKI SEARCH
+			request(`${SHIKI_API_DOMAIN}animes?search=${encodeURIComponent(seeking.toString())}`, {
+				headers: {
+					"User-agent": USER_AGENT
+				},
+				method: "GET"
+			}, (iErr, iResponse, iBody) => {
+				if (iErr) return false;
+				if (iResponse.statusCode !== 200) return false;
+
+
+				let results;
+
+				try {
+					results = JSON.parse(iBody);
+				} catch (e) {
+					return false;
+				};
+
+				if (!results) return false;
+				if (!results.length) return false;
+
+
+				
+
+
+				answerInlineQuery(results.map(anime => ({
+					type: "article",
+					id: `SHIKI_${anime["id"]}_${+new Date()}`,
+					title: ShikiMakeUpName(anime),
+					url: SHIKI_DOMAIN + anime.url,
+					thumb_url: SHIKI_DOMAIN + anime["image"]["original"],
+					input_message_content: {
+message_text: `<a href="${TGE(SHIKI_DOMAIN + anime.url)}">${TGE(ShikiMakeUpName(anime))}</a>
+${ShikiMakeUpYears(anime)}${ShikiMakeUpType(anime)}
+<b>Рейтинг</b>: ${TGE(anime.score ? anime.score : "Неизвестно")}`,
+						parse_mode: "HTML",
+					},
+					reply_markup: Markup.inlineKeyboard([
+						Markup.urlButton("MyAnimeList", `https://myanimelist.net/anime/${anime["id"]}`),
+						Markup.urlButton("Shikimori", SHIKI_DOMAIN + anime.url)
+					])
+				}))).catch((e) => console.error("Error on answering from Shiki", e));
+			});
+		};
+	};
+});
+
 /**
  * MAL and SHIKI API TIME
  */
-
-
-
 const
 	request = require("request"),
 	USER_AGENT = CONFIG.USER_AGENT,
