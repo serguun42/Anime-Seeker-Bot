@@ -195,7 +195,7 @@ telegraf.on("inline_query", (ctx) => {
 			if (res.status === 200)
 				return res.json();
 			else
-				return Promise.reject(`Status code ${res.status} ${res.statusText}`);
+				return Promise.resolve({ results: [] });
 		})
 		.then(({ results }) => {
 			if (!results) return false;
@@ -237,7 +237,7 @@ telegraf.on("inline_query", (ctx) => {
 			if (res.status === 200)
 				return res.json();
 			else
-				return Promise.reject(`Status code ${res.status} ${res.statusText}`);
+				return Promise.resolve([]);
 		})
 		.then((results) => {
 			if (!results) return false;
